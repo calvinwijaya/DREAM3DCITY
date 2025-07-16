@@ -10,6 +10,7 @@ from function.tab2_editvisualize import VisualizeTab
 from function.tab3_translateobj import OBJTranslatorGUI
 from function.tab4_gorunner import GoRunner
 from function.tab5_mergecityjson import MergeCityJSON
+from function.tab6_obj2gml import Obj2GML
 
 class LockedTabWrapper(QWidget):
     def __init__(self, tab_widget: QWidget):
@@ -60,6 +61,7 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(ScrollableTabWrapper(OBJTranslatorGUI()), "OBJ Tools")
         self.tabs.addTab(ScrollableTabWrapper(GoRunner()), "OBJ to 3D City")
         self.tabs.addTab(ScrollableTabWrapper(MergeCityJSON()), "Merge CityJSON")
+        self.tabs.addTab(ScrollableTabWrapper(Obj2GML()), "OBJ to GML")
         central_layout.addWidget(self.tabs)
 
         # Footer
