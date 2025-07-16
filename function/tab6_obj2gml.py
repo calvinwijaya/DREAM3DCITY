@@ -1,5 +1,5 @@
 from PyQt5.QtWidgets import (
-  QWidget, QVBoxLayout, QLabel, QLineEdit, QPushButton, QHBoxLayout, QFileDialog, QTextEdit, QSizePolicy
+  QWidget, QVBoxLayout, QLabel, QLineEdit, QPushButton, QHBoxLayout, QFileDialog, QTextEdit, QSizePolicy, QMessageBox
 )
 from PyQt5.QtCore import Qt
 
@@ -20,10 +20,7 @@ class Obj2GML(QWidget):
         layout = QVBoxLayout()
 
         # ===== Input Building Footprint =====
-        layout.addWidget(self._bold_label("Input Building Outline"))
-        layout.addWidget(QLabel(
-            "The building outline files should have 'fid' attributes as Integer64 and be in Geopackage (*.gpkg) or Shapefile (*.shp) format."
-        ))
+        layout.addWidget(self._bold_label("Input the files directory"))
 
         self.input_dir = QLineEdit()
         self.btn_browse_dir = QPushButton("Browse")
@@ -50,11 +47,18 @@ class Obj2GML(QWidget):
         self.setLayout(layout)
 
         # Converter
-        converter = RunObj2GML(self.log_console)
+        self.converter = RunObj2GML(self.log_console)
 
         # Connect
         self.btn_browse_dir.clicked.connect(self.browse_dir)
-        self.btn_process.clicked.connect(lambda: converter.process(self.input_dir.text()))
+        self.btn_process.clicked.connect(self.process)
+    
+    def process(self):
+        if not self.input_dir.text():
+            QMessageBox.warning(self, "Missing Input", "Please select the files directory!")
+            return
+        
+        self.converter.process(self.input_dir.text())
 
     def browse_dir(self):
         folder = QFileDialog.getExistingDirectory(self, "Select Folder")
