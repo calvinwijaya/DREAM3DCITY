@@ -34,11 +34,12 @@ class RunObj2GML:
     def __init__(self, log: QTextEdit):
         self.log = log
 
-    def log_with_timestamp(self, message):
+    def log_with_timestamp(self, message, is_display: bool =  False):
         """Print message with timestamp"""
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         print(f"[{timestamp}] {message}")
-        self.log.append(f"[{timestamp}] {message}")
+        if is_display:
+            self.log.append(f"[{timestamp}] {message}")
 
     def run_subprocess_with_capture(self, cmd, description=""):
         """Run subprocess and capture ALL its output to the log file"""
@@ -57,7 +58,7 @@ class RunObj2GML:
             
             # Log the output
             if result.stdout:
-                self.log_with_timestamp("Command output:")
+                self.log_with_timestamp(f"Command output: {result.stdout}")
                 print(result.stdout)
             
             self.log_with_timestamp(f"Command completed with return code: {result.returncode}")
@@ -76,7 +77,8 @@ class RunObj2GML:
 
         print(f"\n⚙️  Program is running... Please wait 😬🙏")
         
-        root_dir = files_dir #"test"
+        root_dir = files_dir
+        tools_dir = "function/obj2gml/v2"
         
         # Set up log file path
         log_path = f'{root_dir}/detailed_processing.log'.replace('OBJ', 'CityGML')
@@ -90,13 +92,13 @@ class RunObj2GML:
         
         # Capture all output to log file
         with OutputCapture(log_path):
-            self.log_with_timestamp("=== PROCESSING STARTED ===")
-            self.log_with_timestamp(f"Root directory: {root_dir}")
-            self.log_with_timestamp(f"Log file: {log_path}")
-            self.log_with_timestamp(f"Found {len(file_set)} file sets to process")
+            self.log_with_timestamp("=== PROCESSING STARTED ===", is_display=True)
+            self.log_with_timestamp(f"Root directory: {root_dir}", is_display=True)
+            self.log_with_timestamp(f"Log file: {log_path}", is_display=True)
+            self.log_with_timestamp(f"Found {len(file_set)} file sets to process", is_display=True)
             
             for i, file_data in enumerate(file_set):
-                self.log_with_timestamp(f"--- Processing file set {i+1}/{len(file_set)} ---")
+                self.log_with_timestamp(f"--- Processing file set {i+1}/{len(file_set)} ---", is_display=True)
                 
                 obj = file_data[0]
                 coord = read_and_convert_txt(file_data[1])
@@ -121,64 +123,59 @@ class RunObj2GML:
                 pbar.set_description(f"Processing {folder_name}")
 
                 # Step 1: Pemisahan Bangunan
-                self.log_with_timestamp("STEP 1/6: Building separation")
-                temp_obj_dir = os.path.join(root_path, folder_name, "obj") # f"{root_dir}/{folder_name}/obj"
-                os.makedirs(temp_obj_dir, exist_ok=True)
-                self.log_with_timestamp(f"Temporary OBJ directory: {temp_obj_dir} - is exists : {os.path.exists(temp_obj_dir)}")
+                self.log_with_timestamp("STEP 1/6: Building separation", is_display=True)
                 self.run_subprocess_with_capture([
-                    "go", "run", "objseparator.go", 
+                    "go", "run", f"{tools_dir}/objseparator.go", 
                     f"-cx={coord[0]}", f"-cy={coord[1]}",
                     f"{obj}", 
                     f"{bo}",
-                    temp_obj_dir
+                    f"{root_dir}/{folder_name}/obj"
                 ], "Building separation")
 
                 # Step 2: Translasi Objek Menuju Koordinat UTM
-                self.log_with_timestamp("STEP 2/6: Object translation")
-                temp_translate_dir = os.path.join(root_path, folder_name, "translated") # f"{root_dir}/{folder_name}/translated"
-                os.makedirs(temp_translate_dir, exist_ok=True)
+                self.log_with_timestamp("STEP 2/6: Object translation", is_display=True)
                 self.run_subprocess_with_capture([
-                    "go", "run", "translate.go", 
-                    f"-input={temp_obj_dir}", 
-                    f"-output={temp_translate_dir}", 
+                    "go", "run", f"{tools_dir}/translate.go", 
+                    f"-input={root_dir}/{folder_name}/obj", 
+                    f"-output={root_dir}/{folder_name}/translated", 
                     f"-tx={coord[0]}", 
                     f"-ty={coord[1]}",
                     "-tz=0"
                 ], "Object translation to UTM coordinates")
 
                 # Step 3: Generate MTL
-                self.log_with_timestamp("STEP 3/6: MTL generation")
+                self.log_with_timestamp("STEP 3/6: MTL generation", is_display=True)
                 self.run_subprocess_with_capture([
-                    "python", "semantic_mapping.py",
+                    "python", f"{tools_dir}/semantic_mapping.py",
                     "--obj-dir", f"{root_dir}/{folder_name}/translated",
                     "--geojson", f"{bo}"
                 ], "MTL generation")
 
                 # Step 4: Generate attribute
-                self.log_with_timestamp("STEP 4/5: Generate Attribute")
+                self.log_with_timestamp("STEP 4/5: Generate Attribute", is_display=True)
                 self.run_subprocess_with_capture([
-                    "python", "attribute_gen.py",
+                    "python", f"{tools_dir}/attribute_gen.py",
                     "--geojson", "Kelurahan DKI.geojson",
                     "--obj_dir", f"{root_dir}/{folder_name}/translated",
                     "--output", f"{root_dir}/{folder_name}/translated"
                 ])
 
                 self.run_subprocess_with_capture([
-                    "python", "copyNrename.py", "--root_dir", root_dir
+                    "python", f"{tools_dir}/copyNrename.py", "--root_dir", root_dir
                 ])
 
                 # Step 5: Convert OBJ ke CityGML lod2
-                self.log_with_timestamp("STEP 5/6: OBJ to CityGML conversion")
+                self.log_with_timestamp("STEP 5/6: OBJ to CityGML conversion", is_display=True)
                 self.run_subprocess_with_capture([
-                    "go", "run", "obj2lod2gml.go",
+                    "go", "run", f"{tools_dir}/obj2lod2gml.go",
                     "-input", f"{root_dir}/{folder_name}/translated",
                     "-output", f"{root_dir}/{folder_name}/citygml"
                 ], "OBJ to CityGML LOD2 conversion")
 
                 # Step 6: Merge keseluruhan CityGMl lod2 file menjadi 1 file
-                self.log_with_timestamp("STEP 6/6: CityGML file merging")
+                self.log_with_timestamp("STEP 6/6: CityGML file merging", is_display=True)
                 self.run_subprocess_with_capture([
-                    "python", "lod2merge.py",
+                    "python", f"{tools_dir}/lod2merge.py",
                     f"{root_dir}/{folder_name}/citygml",
                     f"{output_path}",
                     "--name", f"{folder_name}"
@@ -191,7 +188,7 @@ class RunObj2GML:
                     f"{root_dir}/{folder_name}/translated",
                     f"{root_dir}/{folder_name}/citygml"
                 ]
-                self.log_with_timestamp(f"Deleting directories: {directories_to_delete}")
+                self.log_with_timestamp(f"Deleting temporary directories: {directories_to_delete}")
                 # delete_directories(directories_to_delete)
                 
                 self.log_with_timestamp(f"✅ Completed processing {folder_name}")
@@ -201,10 +198,11 @@ class RunObj2GML:
                 pbar.set_description(f"✅ Completed all processing")
 
             end = time.time() - start
-            self.log_with_timestamp("=== PROCESSING COMPLETED ===")
-            self.log_with_timestamp(f"Total duration: {end:.2f} seconds")
+            self.log_with_timestamp("=== PROCESSING COMPLETED ===", is_display=True)
+            self.log_with_timestamp(f"Total duration: {end:.2f} seconds", is_display=True)
             self.log_with_timestamp(f"Processed {len(file_set)} file sets")
-            self.log_with_timestamp(f"Average time per file set: {end/len(file_set):.2f} seconds")
+            self.log_with_timestamp(f"Average time per file set: {end/len(file_set):.2f} seconds", is_display=True)
+            self.log_with_timestamp(f"Output file : {output_path}", is_display=True)
 
         # Close progress bar
         pbar.close()
