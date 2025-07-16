@@ -46,9 +46,6 @@ class Obj2GML(QWidget):
 
         self.setLayout(layout)
 
-        # Converter
-        self.converter = RunObj2GML(self.log_console)
-
         # Connect
         self.btn_browse_dir.clicked.connect(self.browse_dir)
         self.btn_process.clicked.connect(self.process)
@@ -58,7 +55,12 @@ class Obj2GML(QWidget):
             QMessageBox.warning(self, "Missing Input", "Please select the files directory!")
             return
         
-        self.converter.process(self.input_dir.text())
+        # Converter
+        self.converter = RunObj2GML(self.input_dir.text())
+        
+        self.converter.finished.connect(self.converter.deleteLater)
+        self.converter.progress.connect(lambda msg: self.log_console.append(msg))
+        self.converter.start()
 
     def browse_dir(self):
         folder = QFileDialog.getExistingDirectory(self, "Select Folder")
