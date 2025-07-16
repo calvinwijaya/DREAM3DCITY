@@ -82,6 +82,10 @@ class RunObj2GML(QThread):
         
         root_dir = self.files_dir
         tools_dir = "function/obj2gml/v2"
+        output_path = f"{root_dir}/CityGML.gml"
+    
+        temp_dir = f"{root_dir}/temp"
+        os.makedirs(temp_dir, exist_ok=True)
 
         try:
             # Set up log file path
@@ -119,17 +123,13 @@ class RunObj2GML(QThread):
                     self.log_with_timestamp(f"Coordinates: {coord}")
                     self.log_with_timestamp(f"BO file: {bo}")
 
-                    output_path = f"{root_dir}/{folder_name}.gml".replace('OBJ', 'CityGML')
-                    os.makedirs(f"{root_dir}".replace('OBJ', 'CityGML'), exist_ok=True)
-                    self.log_with_timestamp(f"Output path: {output_path}")
-
                     # Update progress bar description (this shows in terminal)
                     pbar.set_description(f"Processing {folder_name}")
 
                     # define temporary directory
-                    obj_dir = f"{root_dir}/{folder_name}/obj" # os.path.join(root_dir, folder_name, "obj")
-                    translate_dir = f"{root_dir}/{folder_name}/translated" # os.path.join(root_dir, folder_name, "translated")
-                    gml_dir = f"{root_dir}/{folder_name}/citygml" # os.path.join(root_dir, folder_name, "citygml")
+                    obj_dir = f"{temp_dir}/obj"
+                    translate_dir = f"{temp_dir}/translated"
+                    gml_dir = f"{temp_dir}/citygml"
 
                     # Step 1: Pemisahan Bangunan
                     self.log_with_timestamp("STEP 1/6: Building separation", is_display=True)
@@ -192,9 +192,8 @@ class RunObj2GML(QThread):
 
                     # Final cleanup
                     self.log_with_timestamp("Final cleanup")
-                    directories_to_delete = [obj_dir, translate_dir, gml_dir]
-                    self.log_with_timestamp(f"Deleting temporary directories: {directories_to_delete}")
-                    delete_directories(directories_to_delete)
+                    self.log_with_timestamp(f"Deleting temporary directories: {temp_dir}")
+                    delete_directories([temp_dir])
                     
                     self.log_with_timestamp(f"✅ Completed processing {folder_name}")
                     
