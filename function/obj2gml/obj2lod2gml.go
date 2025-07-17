@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // XML namespaces and schema declarations
@@ -191,11 +192,11 @@ func main() {
 	// Parse command-line arguments
 	inputDir := flag.String("input", "", "Directory containing OBJ files")
 	outputDir := flag.String("output", "", "Directory for output CityGML files")
-	epsgCode := flag.String("epsg", "", "EPSG code for the coordinate reference system")
+	epsgCode := flag.String("epsg", "32748", "EPSG code for the coordinate reference system")
 	flag.Parse()
 
 	if *inputDir == "" || *outputDir == "" {
-		fmt.Println("Usage: obj2citygml -input <input_directory> -output <output_directory> -epsg <epsg_code>")
+		fmt.Println("Usage: obj2citygml -input <input_directory> -output <output_directory> [-epsg <epsg_code>]")
 		return
 	}
 
@@ -458,6 +459,9 @@ func CreateCityGMLModel(vertices []OBJVertex, faces []OBJFace, materials map[str
 		}
 	}
 
+	// Generate current date for CreationDate
+	currentDate := time.Now().Format("2006-01-02")
+
 	// Create CityGML model
 	model := CityModel{
 		GML:            "http://www.opengis.net/gml",
@@ -470,11 +474,11 @@ func CreateCityGMLModel(vertices []OBJVertex, faces []OBJFace, materials map[str
 		XLink:          "http://www.w3.org/1999/xlink",
 		XSI:            "http://www.w3.org/2001/XMLSchema-instance",
 		SchemaLocation: "http://www.opengis.net/citygml/2.0 http://schemas.opengis.net/citygml/2.0/cityGMLBase.xsd http://www.opengis.net/citygml/appearance/2.0 http://schemas.opengis.net/citygml/appearance/2.0/appearance.xsd http://www.opengis.net/citygml/building/2.0 http://schemas.opengis.net/citygml/building/2.0/building.xsd http://www.opengis.net/citygml/generics/2.0 http://schemas.opengis.net/citygml/generics/2.0/generics.xsd",
-		Name:           fmt.Sprintf("Building-%s", buildingID),
+		Name:           fmt.Sprintf("AC14-%s", buildingID),
 
 		BoundedBy: BoundedBy{
 			Envelope: Envelope{
-				SrsName:      "http://www.opengis.net/def/crs/EPSG/0/" + epsgCode,
+				SrsName:      fmt.Sprintf("http://www.opengis.net/def/crs/EPSG/0/%s", epsgCode),
 				SrsDimension: "3",
 				LowerCorner:  fmt.Sprintf("%.0f %.0f %.1f", minX, minY, minZ),
 				UpperCorner:  fmt.Sprintf("%.0f %.0f %.6f", maxX, maxY, maxZ),
@@ -482,24 +486,16 @@ func CreateCityGMLModel(vertices []OBJVertex, faces []OBJFace, materials map[str
 		},
 	}
 
-	// Calculate storeys from height
-	height := maxZ - minZ
-	calculatedStoreys := int(math.Floor(height / 5.0))
-	if height > 0 && calculatedStoreys == 0 {
-		calculatedStoreys = 1
-	}
-
-	// Create building
+	// Create building with filename as ID and current date as CreationDate
 	building := Building{
-		ID:                 fmt.Sprintf("UUID_%s", generateUUID(buildingID)),
-		Name:               fmt.Sprintf("Building-%s", buildingID),
+		ID:                 buildingID, // Use the filename without extension directly
+		Name:               fmt.Sprintf("AC14-%s", buildingID),
 		Description:        fmt.Sprintf("%s, created by converter", buildingID),
-		CreationDate:       "2025-01-01",
+		CreationDate:       currentDate, // Use current date
 		RelativeToTerrain:  "entirelyAboveTerrain",
-		YearOfConstruction: "2025",
+		YearOfConstruction: fmt.Sprintf("%d", time.Now().Year()), // Use current year
 		MeasuredHeight:     MeasuredHeight{Value: fmt.Sprintf("%.2f", maxZ-minZ), UOM: "m"},
-		// StoreysAboveGround: "2",
-		StoreysAboveGround: strconv.Itoa(calculatedStoreys),
+		StoreysAboveGround: "2",
 		StoreysBelowGround: "0",
 		Class:              Class{Value: "1000", CodeSpace: "http://www.sig3d.org/codelists/citygml/2.0/building/2.0/_AbstractBuilding_class.xml"},
 		Function:           Function{Value: "1000", CodeSpace: "http://www.sig3d.org/codelists/citygml/2.0/building/2.0/_AbstractBuilding_function.xml"},

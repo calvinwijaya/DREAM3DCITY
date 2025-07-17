@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/csv"
 	"encoding/json"
-	"path/filepath"
 	"flag"
 	"fmt"
 	"log"
@@ -49,12 +48,12 @@ func main() {
 	flagSet := flag.NewFlagSet("objseparator", flag.ExitOnError)
 
 	// Define flags
-	flagSet.Float64Var(&cx, "cx", 0, "X coordinate offset")
-	flagSet.Float64Var(&cy, "cy", 0, "Y coordinate offset")
+	flagSet.Float64Var(&cx, "cx", 692827.46065, "X coordinate offset")
+	flagSet.Float64Var(&cy, "cy", 9326588.60235, "Y coordinate offset")
 
 	// Parse flags
-	if len(os.Args) < 3 {
-		fmt.Println("Usage: go run objseparator.go [options] <obj_file> <geojson_file>")
+	if len(os.Args) < 4 {
+		fmt.Println("Usage: go run objseparator.go [options] <obj_file> <geojson_file> <output_dir>")
 		fmt.Println("Options:")
 		flagSet.PrintDefaults()
 		os.Exit(1)
@@ -78,18 +77,20 @@ func main() {
 
 	// Get file paths from remaining arguments
 	remainingArgs := os.Args[argStart:]
-	if len(remainingArgs) < 2 {
-		fmt.Println("Missing required file paths")
-		fmt.Println("Usage: go run objseparator.go [options] <obj_file> <geojson_file>")
+	if len(remainingArgs) < 3 {
+		fmt.Println("Missing required arguments")
+		fmt.Println("Usage: go run objseparator.go [options] <obj_file> <geojson_file> <output_dir>")
 		os.Exit(1)
 	}
 
 	objFilePath := remainingArgs[0]
 	geojsonFilePath := remainingArgs[1]
+	outputDir := remainingArgs[2]
 
 	fmt.Printf("Processing with parameters:\n")
 	fmt.Printf("  OBJ file: %s\n", objFilePath)
 	fmt.Printf("  GeoJSON file: %s\n", geojsonFilePath)
+	fmt.Printf("  Output directory: %s\n", outputDir)
 	fmt.Printf("  CX: %.5f\n", cx)
 	fmt.Printf("  CY: %.5f\n", cy)
 
@@ -109,15 +110,41 @@ func main() {
 	cent := []Point{}
 	index := []int{}
 
-	// fmt.Println("Number of Object to extract: ", len(Mesh))
+	fmt.Println("Number of Object to extract: ", len(Mesh))
 	// Proses Tiling agar mengurangi search pada geojson
 	tiles := CreateTiles(extent, 500, geoPolygon)
 	for i := 0; i < len(Mesh); i++ {
 		index = append(index, SearchIdInGeom(Mesh, geoPolygon, tiles, v, i, &cent))
 	}
 
-	// WritePointsToCSV(cent, index, objFilePath+".csv", cx, cy)
-	WriteToObj(objFilePath, index, Mesh, v, vn)
+	// Filter out outliers (index 12030) before writing
+	filteredCent, filteredIndex, filteredMesh := FilterOutliers(cent, index, Mesh)
+
+	fmt.Printf("Objects before filtering: %d\n", len(index))
+	fmt.Printf("Objects after filtering: %d\n", len(filteredIndex))
+	fmt.Printf("Outliers removed: %d\n", len(index)-len(filteredIndex))
+
+	WritePointsToCSV(filteredCent, filteredIndex, objFilePath+".csv", cx, cy)
+	WriteToObj(objFilePath, outputDir, filteredIndex, filteredMesh, v, vn, filteredCent, cx, cy)
+}
+
+// FilterOutliers removes objects with index 12030 (outliers)
+func FilterOutliers(centroids []Point, indices []int, meshes [][][]Faces) ([]Point, []int, [][][]Faces) {
+	const outlierIndex = 12030
+
+	var filteredCentroids []Point
+	var filteredIndices []int
+	var filteredMeshes [][][]Faces
+
+	for i, idx := range indices {
+		if idx != outlierIndex {
+			filteredCentroids = append(filteredCentroids, centroids[i])
+			filteredIndices = append(filteredIndices, idx)
+			filteredMeshes = append(filteredMeshes, meshes[i])
+		}
+	}
+
+	return filteredCentroids, filteredIndices, filteredMeshes
 }
 
 func SearchIdInGeom(Mesh [][][]Faces, geom []MultiPolygon, tile Tiles, v []Point, i int, cent *[]Point) int {
@@ -234,28 +261,65 @@ func CreateTiles(extens Extent, size float64, geom []MultiPolygon) Tiles {
 	return tile
 }
 
-func WriteToObj(baseFilename string, index []int, Mesh [][][]Faces, vertices []Point, normals []Point) {
+func WriteToObj(baseFilename string, outputDir string, index []int, Mesh [][][]Faces, vertices []Point, normals []Point, centroids []Point, cx, cy float64) {
 	// Map untuk menyimpan grup berdasarkan indeks unik
 	groupedMeshes := make(map[int][][][]Faces)
+	groupedCentroids := make(map[int][]Point)
 
-	// Kumpulkan semua grup berdasarkan indeks unik
+	// Kumpulkan semua grup berdasarkan indeks unik dan centroid-nya
 	for i, idx := range index {
+		// Skip outliers (index 12030) - this is a safety check
+		if idx == 12030 {
+			continue
+		}
+
 		if _, exists := groupedMeshes[idx]; !exists {
 			groupedMeshes[idx] = [][][]Faces{} // Inisialisasi jika belum ada
+			groupedCentroids[idx] = []Point{}
 		}
 		groupedMeshes[idx] = append(groupedMeshes[idx], Mesh[i])
+		groupedCentroids[idx] = append(groupedCentroids[idx], centroids[i])
+	}
+
+	// Create output directory if it doesn't exist
+	err := os.MkdirAll(outputDir, os.ModePerm)
+	if err != nil {
+		fmt.Printf("Error creating output directory: %v\n", err)
+		return
+	}
+
+	// Extract base filename without extension and path
+	baseName := strings.TrimSuffix(baseFilename, ".obj")
+	if strings.Contains(baseName, "/") {
+		parts := strings.Split(baseName, "/")
+		baseName = parts[len(parts)-1]
+	}
+	if strings.Contains(baseName, "\\") {
+		parts := strings.Split(baseName, "\\")
+		baseName = parts[len(parts)-1]
 	}
 
 	// Proses setiap indeks unik dan ekspor sebagai file .obj terpisah
-	// filePath := strings.Split(baseFilename, "/")
-	// exportDir := "export/" + filePath[len(filePath)-1]
-	inputDir := filepath.Dir(baseFilename)
-	filenameOnly := strings.TrimSuffix(filepath.Base(baseFilename), filepath.Ext(baseFilename))
-	exportDir := filepath.Join(inputDir, "temp_"+filenameOnly)
-	os.MkdirAll(exportDir, os.ModePerm)
-
 	for idx, groups := range groupedMeshes {
-		filename := fmt.Sprintf("%s/%d.obj", exportDir, idx)
+		// Calculate average centroid for this group (in case there are multiple objects with same index)
+		avgCentroid := Point{0, 0, 0}
+		centroidCount := len(groupedCentroids[idx])
+		if centroidCount > 0 {
+			for _, centroid := range groupedCentroids[idx] {
+				avgCentroid.X += centroid.X
+				avgCentroid.Y += centroid.Y
+			}
+			avgCentroid.X /= float64(centroidCount)
+			avgCentroid.Y /= float64(centroidCount)
+		}
+
+		// Convert back to original coordinate system and format as integers
+		originalX := int(avgCentroid.X + cx)
+		originalY := int(avgCentroid.Y + cy)
+
+		// Generate filename with the new format
+		filename := fmt.Sprintf("%s/%s_%d_%d.obj", outputDir, baseName, originalX, originalY)
+
 		file, err := os.Create(filename)
 		if err != nil {
 			fmt.Println("Error creating file:", err)
@@ -301,8 +365,8 @@ func WriteToObj(baseFilename string, index []int, Mesh [][][]Faces, vertices []P
 			file.WriteString(fmt.Sprintf("vn %.6f %.6f %.6f\n", vn.X, vn.Y, vn.Z))
 		}
 
-		// 4. Menulis objek dengan nama unik berdasarkan indeks
-		file.WriteString(fmt.Sprintf("o Object_%d\n", idx))
+		// 4. Menulis objek dengan nama unik berdasarkan centroid
+		file.WriteString(fmt.Sprintf("o %s_%d_%d\n", baseName, originalX, originalY))
 
 		// 5. Menulis face dengan indeks yang sesuai
 		for _, facesGroup := range groups {
@@ -318,7 +382,7 @@ func WriteToObj(baseFilename string, index []int, Mesh [][][]Faces, vertices []P
 		}
 	}
 
-	fmt.Printf("Exported %d OBJ files to %s\n", len(groupedMeshes), exportDir)
+	fmt.Printf("Exported %d OBJ files to %s (outliers excluded)\n", len(groupedMeshes), outputDir)
 }
 
 func WritePointsToCSV(points []Point, index []int, filename string, cx, cy float64) error {
@@ -336,7 +400,7 @@ func WritePointsToCSV(points []Point, index []int, filename string, cx, cy float
 		return err
 	}
 
-	// Write each point to CSV
+	// Write each point to CSV (outliers already filtered out)
 	for i, p := range points {
 		row := []string{
 			strconv.FormatFloat(p.X+cx, 'f', 6, 64),
@@ -349,11 +413,12 @@ func WritePointsToCSV(points []Point, index []int, filename string, cx, cy float
 		}
 	}
 
-	fmt.Println("CSV file saved:", filename)
+	fmt.Println("CSV file saved:", filename, "(outliers excluded)")
 
 	return nil
 }
 
+// Rest of the functions remain the same...
 func IsPointInPolygon(point Point, polygon MultiPolygon) bool {
 	const eps = 1e-9
 	inside := false

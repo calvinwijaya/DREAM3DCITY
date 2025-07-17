@@ -17,7 +17,7 @@ func main() {
 	translationXPtr := flag.Float64("tx", 0.0, "X translation value")
 	translationYPtr := flag.Float64("ty", 0.0, "Y translation value")
 	translationZPtr := flag.Float64("tz", 0.0, "Z translation value")
-	outputDirPtr := flag.String("output", "", "Output directory (default: inputDir_translated)")
+	outputDirPtr := flag.String("output", "", "Output directory (optional: default is inputDir_translated)")
 	workersPtr := flag.Int("workers", 4, "Number of concurrent workers")
 
 	// Parse command-line arguments
@@ -27,6 +27,8 @@ func main() {
 	if *inputDirPtr == "" {
 		fmt.Println("Error: Input directory/file is required")
 		fmt.Println("Usage:")
+		fmt.Println("  go run translate.go -input=input/obj/dir -output=output/dir -tx=412345.123 -ty=9123456.123 -tz=0")
+		fmt.Println("Options:")
 		flag.PrintDefaults()
 		return
 	}
@@ -38,14 +40,18 @@ func main() {
 	translationZ := *translationZPtr
 	maxWorkers := *workersPtr
 
-	// Create output directory name
+	// Determine output directory
 	var outputDir string
-	if *outputDirPtr == "" {
+	if *outputDirPtr != "" {
+		// Use user-specified output directory
+		outputDir = *outputDirPtr
+		fmt.Printf("Using specified output directory: %s\n", outputDir)
+	} else {
+		// Create default output directory name
 		dirName := filepath.Base(inputDir)
 		parentDir := filepath.Dir(inputDir)
 		outputDir = filepath.Join(parentDir, dirName+"_translated")
-	} else {
-		outputDir = *outputDirPtr
+		fmt.Printf("Using default output directory: %s\n", outputDir)
 	}
 
 	// Create output directory if it doesn't exist
@@ -87,6 +93,7 @@ func main() {
 
 	fmt.Printf("Found %d OBJ files to process\n", totalFiles)
 	fmt.Printf("Translating by (%.6f, %.6f, %.6f)\n", translationX, translationY, translationZ)
+	fmt.Printf("Output directory: %s\n", outputDir)
 
 	// Use a wait group to track completion of goroutines
 	var wg sync.WaitGroup
@@ -142,6 +149,7 @@ func main() {
 
 	// Print summary
 	fmt.Printf("Successfully translated %d from %d obj files\n", successCount, totalFiles)
+	fmt.Printf("Output saved to: %s\n", outputDir)
 
 	if len(failedFiles) > 0 {
 		fmt.Printf("Failed to translate %d files: %v\n", len(failedFiles), failedFiles)
