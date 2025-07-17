@@ -82,7 +82,6 @@ class RunObj2GML(QThread):
         
         root_dir = self.files_dir
         tools_dir = "function/obj2gml/v2"
-        output_path = f"{root_dir}/CityGML.gml"
     
         temp_dir = f"{root_dir}/temp"
         os.makedirs(temp_dir, exist_ok=True)
@@ -130,6 +129,9 @@ class RunObj2GML(QThread):
                     obj_dir = f"{temp_dir}/obj"
                     translate_dir = f"{temp_dir}/translated"
                     gml_dir = f"{temp_dir}/citygml"
+                    
+                    # output path
+                    output_path = f"{root_dir}/{folder_name}.gml"
 
                     # Step 1: Pemisahan Bangunan
                     self.log_with_timestamp("STEP 1/6: Building separation", is_display=True)
@@ -192,10 +194,12 @@ class RunObj2GML(QThread):
 
                     # Final cleanup
                     self.log_with_timestamp("Final cleanup")
-                    self.log_with_timestamp(f"Deleting temporary directories: {temp_dir}")
-                    delete_directories([temp_dir])
+                    delete_dir = [obj_dir, translate_dir, gml_dir]
+                    self.log_with_timestamp(f"Deleting temporary directories: {delete_dir}")
+                    delete_directories(delete_dir)
                     
                     self.log_with_timestamp(f"Completed processing {folder_name}")
+                    self.log_with_timestamp(f"Output file : {output_path}", is_display=True)
                     
                     # Update progress bar (this shows in terminal)
                     pbar.update(1)
@@ -207,10 +211,13 @@ class RunObj2GML(QThread):
                 self.log_with_timestamp(f"Processed {len(file_set)} file sets")
                 self.log_with_timestamp(f"Average time per file set: {end/len(file_set):.2f} seconds", is_display=True)
                 self.log_with_timestamp(f"📝 Detailed logs with timestamps saved to '{log_path}'", is_display=True)
-                self.log_with_timestamp(f"Output file : {output_path}", is_display=True)
 
             # Close progress bar
             pbar.close()
+
+            # Final cleanup of temporary directories
+            delete_directories([temp_dir])
+
             
             # This prints to terminal after log capture is done
             print(f"\n All processing completed!")
