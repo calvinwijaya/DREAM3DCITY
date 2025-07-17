@@ -78,7 +78,7 @@ class RunObj2GML(QThread):
     def run(self):
         start = time.time()
 
-        print(f"\n⚙️  Program is running... Please wait 😬🙏")
+        print(f"\n  Program is running... Please wait ")
         
         root_dir = self.files_dir
         tools_dir = "function/obj2gml/v2"
@@ -159,7 +159,7 @@ class RunObj2GML(QThread):
                     self.log_with_timestamp("STEP 4/5: Generate Attribute", is_display=True)
                     self.run_subprocess_with_capture([
                         "python", f"{tools_dir}/attribute_gen.py",
-                        "--geojson", "Kelurahan DKI.geojson",
+                        "--geojson", f"{tools_dir}/Kelurahan DKI.geojson",
                         "--obj_dir", f"{root_dir}/{folder_name}/translated",
                         "--output", f"{root_dir}/{folder_name}/translated"
                     ])
@@ -195,11 +195,11 @@ class RunObj2GML(QThread):
                     self.log_with_timestamp(f"Deleting temporary directories: {directories_to_delete}")
                     delete_directories(directories_to_delete)
                     
-                    self.log_with_timestamp(f"✅ Completed processing {folder_name}")
+                    self.log_with_timestamp(f"Completed processing {folder_name}")
                     
                     # Update progress bar (this shows in terminal)
                     pbar.update(1)
-                    pbar.set_description(f"✅ Completed all processing")
+                    pbar.set_description(f"Completed all processing")
 
                 end = time.time() - start
                 self.log_with_timestamp("=== PROCESSING COMPLETED ===", is_display=True)
@@ -212,9 +212,9 @@ class RunObj2GML(QThread):
             pbar.close()
             
             # This prints to terminal after log capture is done
-            print(f"\n🎉 All processing completed!")
-            print(f"📊 Processed {len(file_set)} file sets in {end:.2f} seconds")
-            print(f"📝 Detailed logs with timestamps saved to '{log_path}'")
-            print("\n© 2025. Fairuz Akmal Pradana 👱")
+            print(f"\n All processing completed!")
+            print(f"Processed {len(file_set)} file sets in {end:.2f} seconds")
+            print(f"Detailed logs with timestamps saved to '{log_path}'")
+            print("\n© 2025. Fairuz Akmal Pradana")
         except Exception as e:
             self.log_with_timestamp(str(e), is_display=True)

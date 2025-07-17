@@ -66,7 +66,7 @@ def copy_and_rename_csv(root_dir, csv_filename="buildings_data.csv", target_subd
                         "target": str(csv_target_path)
                     })
                     
-                    print(f"  ✓ Successfully copied to: {csv_target_path.name}")
+                    print(f"  [OK] Successfully copied to: {csv_target_path.name}")
                     
                 except Exception as e:
                     results["failed_files"].append({
@@ -75,7 +75,7 @@ def copy_and_rename_csv(root_dir, csv_filename="buildings_data.csv", target_subd
                         "error": str(e)
                     })
                     
-                    print(f"  ✗ Failed to copy: {e}")
+                    print(f"  [FAIL] Failed to copy: {e}")
             else:
                 results["skipped_files"].append({
                     "folder": folder_name,
@@ -83,7 +83,7 @@ def copy_and_rename_csv(root_dir, csv_filename="buildings_data.csv", target_subd
                     "reason": "Source file not found"
                 })
                 
-                print(f"  ⚠ Skipped: CSV file not found at {csv_source_path}")
+                print(f"  [WARNING] Skipped: CSV file not found at {csv_source_path}")
             
             print()  # Empty line for readability
     
@@ -166,7 +166,7 @@ def copy_and_rename_csv_advanced(root_dir, csv_filename="buildings_data.csv", ta
                     "folder": folder_name,
                     "reason": "Source file not found"
                 })
-                print(f"  ⚠ Skipped: Source file not found -> {csv_source_path}")
+                print(f"  [WARNING] Skipped: Source file not found -> {csv_source_path}")
                 continue
             
             # Handle existing target file
@@ -176,16 +176,16 @@ def copy_and_rename_csv_advanced(root_dir, csv_filename="buildings_data.csv", ta
                     try:
                         shutil.copy2(csv_target_path, backup_path)
                         results["backed_up_files"].append(str(backup_path))
-                        print(f"  📁 Backup created: {backup_path.name}")
+                        print(f" Backup created: {backup_path.name}")
                     except Exception as e:
-                        print(f"  ⚠ Backup failed: {e}")
+                        print(f"  [WARNING] Backup failed: {e}")
                 
                 if not overwrite:
                     results["skipped_files"].append({
                         "folder": folder_name,
                         "reason": "Target file exists and overwrite=False"
                     })
-                    print(f"  ⚠ Skipped: Target file exists")
+                    print(f"  [WARNING] Skipped: Target file exists")
                     continue
             
             # Copy the file
@@ -197,14 +197,14 @@ def copy_and_rename_csv_advanced(root_dir, csv_filename="buildings_data.csv", ta
                     "target": str(csv_target_path)
                 })
                 os.rename(csv_source_path, csv_target_path / f"{folder_name}.csv")
-                print(f"  ✓ Successfully copied to: {csv_target_path.name}")
+                print(f"  [OK] Successfully copied to: {csv_target_path.name}")
                 
             except Exception as e:
                 results["failed_files"].append({
                     "folder": folder_name,
                     "error": str(e)
                 })
-                print(f"  ✗ Failed to copy: {e}")
+                print(f"  [FAIL] Failed to copy: {e}")
             
             print()
     
@@ -282,10 +282,10 @@ This will copy files like:
     )
     
     if result["success"]:
-        print(f"\n✓ Operation completed successfully!")
+        print(f"\n[OK] Operation completed successfully!")
         return 0
     else:
-        print(f"\n✗ Operation failed: {result.get('error', 'Unknown error')}")
+        print(f"\n[FAIL] Operation failed: {result.get('error', 'Unknown error')}")
         return 1
 
 if __name__ == "__main__":

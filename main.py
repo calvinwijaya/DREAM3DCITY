@@ -6,7 +6,7 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtGui import QIcon, QPixmap
 from PyQt5.QtCore import Qt, QSize
 from function.tab1_reconstruct import ReconstructTab
-from function.tab2_editvisualize import VisualizeTab
+# from function.tab2_editvisualize import VisualizeTab
 from function.tab3_translateobj import OBJTranslatorGUI
 from function.tab4_gorunner import GoRunner
 from function.tab5_mergecityjson import MergeCityJSON
@@ -57,7 +57,7 @@ class MainWindow(QMainWindow):
         # Tab widget
         self.tabs = QTabWidget()
         self.tabs.addTab(ScrollableTabWrapper(ReconstructTab()), "3D Reconstruction")
-        self.tabs.addTab(ScrollableTabWrapper(VisualizeTab()), "3D Visualize")
+        # self.tabs.addTab(ScrollableTabWrapper(VisualizeTab()), "3D Visualize")
         self.tabs.addTab(ScrollableTabWrapper(OBJTranslatorGUI()), "OBJ Tools")
         self.tabs.addTab(ScrollableTabWrapper(GoRunner()), "OBJ to 3D City")
         self.tabs.addTab(ScrollableTabWrapper(MergeCityJSON()), "Merge CityJSON")
