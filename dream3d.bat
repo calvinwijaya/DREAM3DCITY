@@ -53,7 +53,7 @@ if errorlevel 1 (
 
 :: Activate the dream3d environment
 echo [INFO] Activating environment: %ENV_NAME%
-call "%CONDA_PATH%" activate %ENV_NAME%
+call "%CONDA_PATH%" activate %ENV_NAME% && set PYTHONIOENCODING=utf-8
 
 :: Check if key library is installed
 echo [INFO] Checking if PyQt5 is already installed...
