@@ -1,29 +1,138 @@
 import os
 import sys
+import time
+import shutil
 import subprocess
+from pathlib import Path
+
 import geopandas as gpd
 import matplotlib.pyplot as plt
-from pathlib import Path
-from PyQt5.QtWidgets import (
-    QApplication, QWidget, QLabel, QPushButton, QLineEdit, QVBoxLayout,
-    QHBoxLayout, QFileDialog, QComboBox, QPlainTextEdit, QSizePolicy, QMessageBox,
-    QGridLayout, QCheckBox
-)
-from PyQt5.QtGui import QFont
-from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 
+from PyQt6.QtWidgets import (
+    QWidget, QLabel, QPushButton, QLineEdit, QVBoxLayout,
+    QHBoxLayout, QFileDialog, QComboBox, QTextEdit, QSizePolicy, QMessageBox,
+    QGridLayout, QCheckBox, QProgressBar
+)
+from PyQt6.QtCore import Qt, QThread, pyqtSignal
+from PyQt6.QtGui import QFont
+
+# Your custom function imports
 from function.obj2cityjson.separator import split_obj_by_geojson
 from function.obj2cityjson.color import coloring_obj
 from function.obj2cityjson.tojson import obj_folder_to_cityjson
 from function.obj2cityjson.mergeobj import merge_obj_mtl
 from function.obj2cityjson.json2gml import json2gml
-import shutil
+
 
 COLORS = {
     "ground": (0.36, 0.25, 0.20),
     "wall": (1.00, 1.00, 1.00),
     "roof": (1.00, 0.00, 0.00)
 }
+
+class GoRunnerWorker(QThread):
+    """Background worker to handle the heavy OBJ processing without freezing the UI."""
+    log_signal = pyqtSignal(str)
+    finished_signal = pyqtSignal(bool, str, float)
+
+    def __init__(self, config):
+        super().__init__()
+        self.config = config
+
+    def run(self):
+        start_time = time.perf_counter()
+        
+        # Extract variables from config dictionary for cleaner code
+        obj_path = self.config['obj_path']
+        geojson_path = self.config['geojson_path']
+        output_dir_temp = self.config['output_dir_temp']
+        origin_utm = self.config['origin_utm']
+        prefix = self.config['prefix']
+        user = self.config['user']
+        output_geojson = self.config['output_geojson']
+        outputtemp_obj_color = self.config['outputtemp_obj_color']
+        output_merge_obj = self.config['output_merge_obj']
+        output_mtl = self.config['output_mtl']
+        output_path = self.config['output_path']
+        epsg = self.config['epsg']
+        tx, ty = self.config['tx'], self.config['ty']
+        
+        obj_checked = self.config['obj_checked']
+        cityjson_checked = self.config['cityjson_checked']
+        citygml_checked = self.config['citygml_checked']
+
+        try:
+            # === Only OBJ (and optionally CityJSON) selected ===
+            if obj_checked and not citygml_checked:
+                self.log_signal.emit("📄 Reading OBJ...")
+                self.log_signal.emit("🔧 Splitting OBJ by GeoJSON...")
+                split_obj_by_geojson(obj_path, geojson_path, output_dir_temp, origin_utm, prefix, user, output_geojson)
+
+                self.log_signal.emit("🎨 Applying Colors...")
+                coloring_obj(output_dir_temp, outputtemp_obj_color, COLORS)
+
+                self.log_signal.emit("✅ Coloring done, merging OBJ...")
+                merge_obj_mtl(outputtemp_obj_color, output_merge_obj, output_mtl)
+                self.log_signal.emit(f"✅ OBJ Merge done, output saved to: {output_merge_obj}")
+
+                if cityjson_checked:
+                    self.log_signal.emit("🏙️ Converting to CityJSON...")
+                    obj_folder_to_cityjson(outputtemp_obj_color, output_path, epsg)
+                    self.log_signal.emit(f"✅ Convert to CityJSON done, output saved to: {output_path}")
+
+            # === Only CityGML selected ===
+            elif citygml_checked and not obj_checked and not cityjson_checked:
+                self.log_signal.emit("🔁 Running CityGML translation script...")
+                cmd = ["python", "function/obj2gml/obj2gmlrunner.py", obj_path, geojson_path, str(tx), str(ty), prefix or "", user or "", str(epsg)]
+                self._run_subprocess(cmd)
+
+            # === Both OBJ and CityGML selected ===
+            elif obj_checked and citygml_checked:
+                self.log_signal.emit("📄 Reading OBJ...")
+                self.log_signal.emit("🔧 Splitting OBJ by GeoJSON...")
+                split_obj_by_geojson(obj_path, geojson_path, output_dir_temp, origin_utm, prefix, user, output_geojson)
+
+                self.log_signal.emit("🎨 Applying Colors...")
+                coloring_obj(output_dir_temp, outputtemp_obj_color, COLORS)
+
+                self.log_signal.emit("✅ Coloring done, merging OBJ...")
+                merge_obj_mtl(outputtemp_obj_color, output_merge_obj, output_mtl)
+                self.log_signal.emit(f"✅ OBJ Merge done, output saved to: {output_merge_obj}")
+
+                if cityjson_checked:
+                    self.log_signal.emit("🏙️ Converting to CityJSON...")
+                    obj_folder_to_cityjson(outputtemp_obj_color, output_path, epsg)
+                    self.log_signal.emit(f"✅ Convert to CityJSON done, output saved to: {output_path}")
+                
+                self.log_signal.emit("🔁 Converting colored OBJ to CityGML...")
+                cmd = ["python", "function/obj2gml/obj2gmlrunner2.py", outputtemp_obj_color, output_geojson, prefix or "", user or "", str(epsg), obj_path]
+                self._run_subprocess(cmd)
+
+            # Cleanup
+            if os.path.exists(output_dir_temp):
+                shutil.rmtree(output_dir_temp)
+            if os.path.exists(outputtemp_obj_color):
+                shutil.rmtree(outputtemp_obj_color)
+
+            elapsed = time.perf_counter() - start_time
+            self.finished_signal.emit(True, "Process completed successfully.", elapsed)
+
+        except Exception as e:
+            elapsed = time.perf_counter() - start_time
+            self.finished_signal.emit(False, str(e), elapsed)
+
+    def _run_subprocess(self, cmd):
+        self.log_signal.emit(f"🛠️ Executing: {' '.join(cmd)}")
+        process = subprocess.Popen(
+            cmd, cwd=os.getcwd(), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace"
+        )
+        for line in process.stdout:
+            self.log_signal.emit(line.rstrip())
+        process.wait()
+        if process.returncode != 0:
+            raise subprocess.CalledProcessError(process.returncode, cmd)
+
 
 class GoRunner(QWidget):
     def __init__(self):
@@ -34,18 +143,19 @@ class GoRunner(QWidget):
         self.selected_marker = None
         self.utm_reference = None
         self._press_event = None
+        self.worker = None
 
         self.init_ui()
 
     def _bold_label(self, text):
         label = QLabel(text)
-        font = QFont()
-        font.setBold(True)
-        label.setFont(font)
+        label.setStyleSheet("font-weight: 600; color: #334155; margin-top: 5px;")
         return label
 
     def init_ui(self):
         layout = QVBoxLayout()
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(10)
 
         # ===== Input OBJ File =====
         layout.addWidget(self._bold_label("Input OBJ File"))
@@ -74,65 +184,60 @@ class GoRunner(QWidget):
 
         # ===== Manual Coordinate Input =====
         self.manual_coord_widget = QWidget()
-        coord_layout = QHBoxLayout()
+        coord_layout = QHBoxLayout(self.manual_coord_widget)
+        coord_layout.setContentsMargins(0, 0, 0, 0)
 
-        self.label_x = QLabel("X Coordinate")
+        self.label_x = QLabel("X:")
         self.input_x = QLineEdit()
-        self.label_y = QLabel("Y Coordinate")
+        self.label_y = QLabel("Y:")
         self.input_y = QLineEdit()
 
         coord_layout.addWidget(self.label_x)
         coord_layout.addWidget(self.input_x)
         coord_layout.addWidget(self.label_y)
         coord_layout.addWidget(self.input_y)
-
-        self.manual_coord_widget.setLayout(coord_layout)
+        
         self.manual_coord_widget.hide()
         layout.addWidget(self.manual_coord_widget)
 
-         # ===== GeoJSON Plot =====
+        # ===== GeoJSON Plot (Matplotlib) =====
         self.canvas_container = QWidget()
-        canvas_layout = QVBoxLayout()
+        canvas_layout = QVBoxLayout(self.canvas_container)
         canvas_layout.setContentsMargins(0, 0, 0, 0)
-        self.figure = plt.figure()
+        
+        self.figure = plt.figure(facecolor='#F8FAFC')
         self.ax = self.figure.add_subplot(111)
         self.canvas = FigureCanvas(self.figure)
         self.canvas.mpl_connect("scroll_event", self.on_scroll)
-        self.canvas.setMinimumHeight(500)
-        self.canvas.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.canvas.setMinimumHeight(350)
+        self.canvas.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        
         canvas_layout.addWidget(self.canvas)
-        self.canvas_container.setLayout(canvas_layout)
         layout.addWidget(self.canvas_container)
-        self.canvas_container.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        self.canvas.resize(self.canvas_container.size())
 
-        # Prefix and User
+        # ===== Prefix, User, EPSG Grid =====
         grid = QGridLayout()
+        grid.addWidget(self._bold_label("Prefix (Optional)"), 0, 0)
+        grid.addWidget(self._bold_label("User (Optional)"), 0, 1)
+        grid.addWidget(self._bold_label("EPSG Code"), 0, 2)
 
-        # Row 0: labels
-        grid.addWidget(QLabel("<b>Prefix</b>"), 0, 0)
-        grid.addWidget(QLabel("<b>User</b>"), 0, 1)
-        grid.addWidget(QLabel("<b>EPSG Code</b>"), 0, 2)
-
-        # Row 1: input fields
         self.prefix = QLineEdit()
         self.user = QLineEdit()
         self.epsg = QLineEdit()
-        self.prefix.setPlaceholderText("Optional")
-        self.user.setPlaceholderText("Optional")
+        self.epsg.setText("32748")  # Default Fallback
+        
         grid.addWidget(self.prefix, 1, 0)
         grid.addWidget(self.user, 1, 1)
         grid.addWidget(self.epsg, 1, 2)
         layout.addLayout(grid)
 
-        # Output Type Selection
-        layout.addWidget(self._bold_label("Choose Output"))
-
+        # ===== Output Type Selection =====
+        layout.addWidget(self._bold_label("Choose Output formats"))
+        
         self.output_obj = QCheckBox("OBJ")
         self.output_cityjson = QCheckBox("CityJSON")
         self.output_citygml = QCheckBox("CityGML")
 
-        # Logic: disable CityJSON if OBJ is unchecked
         self.output_obj.stateChanged.connect(self.sync_output_checkboxes)
         self.output_cityjson.setEnabled(False)
 
@@ -142,16 +247,43 @@ class GoRunner(QWidget):
         row_output.addWidget(self.output_citygml)
         layout.addLayout(row_output)
 
-        # Process button
-        self.btn_process = QPushButton("Process")
-        self.btn_process.setStyleSheet("font-weight: bold; padding: 8px;")
-        self.btn_process.setFont(QFont("Arial", 11, QFont.Bold))
+        # ===== Process Button & Loading Bar =====
+        self.btn_process = QPushButton("Process Data")
+        self.btn_process.setStyleSheet("""
+            QPushButton {
+                background-color: #2563EB;
+                color: #FFFFFF;
+                font-weight: bold;
+                font-size: 15px;
+                padding: 12px;
+                border-radius: 6px;
+                border: none;
+            }
+            QPushButton:hover { background-color: #1D4ED8; }
+            QPushButton:disabled { background-color: #94A3B8; color: #F1F5F9; }
+        """)
         layout.addWidget(self.btn_process)
-        
-        # Log
-        layout.addWidget(self._bold_label("Log Output"))
-        self.log_window = QPlainTextEdit()
+
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setRange(0, 0)
+        self.progress_bar.setFixedHeight(6)
+        self.progress_bar.setTextVisible(False)
+        self.progress_bar.setStyleSheet("QProgressBar { background-color: #E2E8F0; border: none; } QProgressBar::chunk { background-color: #2563EB; }")
+        self.progress_bar.setVisible(False)
+        layout.addWidget(self.progress_bar)
+
+        # ===== Log Output =====
+        layout.addWidget(self._bold_label("Execution Log"))
+        self.log_window = QTextEdit()
         self.log_window.setReadOnly(True)
+        self.log_window.setStyleSheet("""
+            QTextEdit {
+                background-color: #0F172A; color: #F8FAFC;
+                font-family: "Cascadia Code", "Consolas", monospace;
+                font-size: 12px; border-radius: 6px; padding: 8px; border: 1px solid #334155;
+            }
+        """)
+        self.log_window.setMinimumHeight(150)
         layout.addWidget(self.log_window)
 
         self.setLayout(layout)
@@ -193,40 +325,38 @@ class GoRunner(QWidget):
             self.geojson_file = file
             self.geojson_path.setText(file)
             self.log(f"🌍 Loaded GeoJSON file: {file}")
+            if self.reference_method.currentIndex() == 1:
+                self.display_geojson()
 
     def display_geojson(self):
         self.ax.clear()
         if not self.geojson_file:
-            self.log("❌ No BO file loaded.")
             return
-        gdf = gpd.read_file(self.geojson_file)
-        gdf.plot(ax=self.ax, edgecolor='black', facecolor='none')
-        self.coordinates.clear()
+        try:
+            gdf = gpd.read_file(self.geojson_file)
+            gdf.plot(ax=self.ax, edgecolor='#1E293B', facecolor='none')
+            self.coordinates.clear()
 
-        for geom in gdf.geometry:
-            if geom.geom_type == 'Polygon':
-                for x, y in geom.exterior.coords:
-                    self.ax.plot(x, y, 'ro', markersize=2)
-                    self.coordinates.append((x, y))
-            elif geom.geom_type == 'MultiPolygon':
-                for poly in geom.geoms:
-                    for x, y in poly.exterior.coords:
+            for geom in gdf.geometry:
+                if geom.geom_type == 'Polygon':
+                    for x, y in geom.exterior.coords:
                         self.ax.plot(x, y, 'ro', markersize=2)
                         self.coordinates.append((x, y))
+                elif geom.geom_type == 'MultiPolygon':
+                    for poly in geom.geoms:
+                        for x, y in poly.exterior.coords:
+                            self.ax.plot(x, y, 'ro', markersize=2)
+                            self.coordinates.append((x, y))
 
-        self.figure.tight_layout() 
-        
-        self.ax.set_xticks([])
-        self.ax.set_yticks([])
-        self.ax.set_xlabel('')
-        self.ax.set_ylabel('')
-        self.ax.axis("off")
-
-        self.canvas.draw()
-        self.canvas.mpl_connect("button_press_event", self.select_vertex)
+            self.figure.tight_layout() 
+            self.ax.axis("off")
+            self.canvas.draw()
+            self.canvas.mpl_connect("button_press_event", self.select_vertex)
+        except Exception as e:
+            self.log(f"❌ Failed to display GeoJSON: {str(e)}")
 
     def select_vertex(self, event):
-        if event.button != 1 or event.xdata is None or event.ydata is None:
+        if event.button != 1 or event.xdata is None or event.ydata is None or not self.coordinates:
             return
         x_clicked, y_clicked = event.xdata, event.ydata
         closest = min(self.coordinates, key=lambda p: (p[0] - x_clicked) ** 2 + (p[1] - y_clicked) ** 2)
@@ -235,41 +365,23 @@ class GoRunner(QWidget):
         if self.selected_marker:
             self.selected_marker.remove()
         self.selected_marker = self.ax.plot(closest[0], closest[1], 'go', markersize=10, label="Selected")[0]
-        self.ax.legend()
         self.canvas.draw()
-
-        self.log(f"Selected vertex: X={closest[0]:.2f}, Y={closest[1]:.2f}")
+        self.log(f"📍 Selected vertex: X={closest[0]:.2f}, Y={closest[1]:.2f}")
 
     def log(self, message):
-        self.log_window.appendPlainText(message)
-        self.log_window.verticalScrollBar().setValue(self.log_window.verticalScrollBar().maximum())
+        self.log_window.append(message)
 
     def on_scroll(self, event):
         base_scale = 1.2
-        ax = self.ax
-        xdata = event.xdata
-        ydata = event.ydata
+        if event.xdata is None or event.ydata is None: return
 
-        if xdata is None or ydata is None:
-            return
+        cur_xlim, cur_ylim = self.ax.get_xlim(), self.ax.get_ylim()
+        x_left, x_right = event.xdata - cur_xlim[0], cur_xlim[1] - event.xdata
+        y_bottom, y_top = event.ydata - cur_ylim[0], cur_ylim[1] - event.ydata
 
-        cur_xlim = ax.get_xlim()
-        cur_ylim = ax.get_ylim()
-
-        x_left = event.xdata - cur_xlim[0]
-        x_right = cur_xlim[1] - event.xdata
-        y_bottom = event.ydata - cur_ylim[0]
-        y_top = cur_ylim[1] - event.ydata
-
-        if event.button == 'up':
-            scale_factor = 1 / base_scale
-        elif event.button == 'down':
-            scale_factor = base_scale
-        else:
-            scale_factor = 1
-
-        ax.set_xlim([xdata - x_left * scale_factor, xdata + x_right * scale_factor])
-        ax.set_ylim([ydata - y_bottom * scale_factor, ydata + y_top * scale_factor])
+        scale_factor = 1 / base_scale if event.button == 'up' else base_scale if event.button == 'down' else 1
+        self.ax.set_xlim([event.xdata - x_left * scale_factor, event.xdata + x_right * scale_factor])
+        self.ax.set_ylim([event.ydata - y_bottom * scale_factor, event.ydata + y_top * scale_factor])
         self.canvas.draw_idle()
 
     def enable_panning(self):
@@ -279,26 +391,19 @@ class GoRunner(QWidget):
         self.canvas.mpl_connect("button_release_event", self.on_mouse_release)
 
     def on_mouse_press(self, event):
-        if event.button == 2:  # Middle mouse button
-            self._press_event = event
+        if event.button == 2: self._press_event = event
 
     def on_mouse_drag(self, event):
         if self._press_event and event.button == 2 and event.xdata and event.ydata:
-            dx = event.xdata - self._press_event.xdata
-            dy = event.ydata - self._press_event.ydata
-
-            xlim = self.ax.get_xlim()
-            ylim = self.ax.get_ylim()
-
+            dx, dy = event.xdata - self._press_event.xdata, event.ydata - self._press_event.ydata
+            xlim, ylim = self.ax.get_xlim(), self.ax.get_ylim()
             self.ax.set_xlim(xlim[0] - dx, xlim[1] - dx)
             self.ax.set_ylim(ylim[0] - dy, ylim[1] - dy)
-
             self.canvas.draw()
-            self._press_event = event  # Update drag anchor point
+            self._press_event = event
 
     def on_mouse_release(self, event):
-        if event.button == 2:
-            self._press_event = None
+        if event.button == 2: self._press_event = None
 
     def run_obj2gml(self):
         obj_path = self.obj_path.text().strip()
@@ -308,118 +413,73 @@ class GoRunner(QWidget):
             QMessageBox.warning(self, "Missing Input", "Please select both OBJ and BO files.")
             return
 
+        tx, ty = 0.0, 0.0
         if self.reference_method.currentIndex() == 0:
             try:
-                tx = float(self.input_x.text())
-                ty = float(self.input_y.text())
+                tx, ty = float(self.input_x.text()), float(self.input_y.text())
             except ValueError:
-                QMessageBox.warning(self, "Invalid Input", "X and Y must be numeric.")
+                QMessageBox.warning(self, "Invalid Input", "Manual X and Y coordinates must be numeric.")
                 return
         else:
             if not self.utm_reference:
-                QMessageBox.warning(self, "No Vertex", "No vertex selected.")
+                QMessageBox.warning(self, "No Vertex", "Please click a vertex on the GeoJSON plot first.")
                 return
             tx, ty = self.utm_reference
-        self.log(f"Using coordinates: X={tx}, Y={ty}")
 
-        origin_utm = (
-            tuple(map(float, [self.input_x.text(), self.input_y.text(), 0.001]))
-            if self.reference_method.currentIndex() == 0
-            else self.utm_reference + (0.001,)
-        )
+        obj_checked = self.output_obj.isChecked()
+        cityjson_checked = self.output_cityjson.isChecked()
+        citygml_checked = self.output_citygml.isChecked()
+
+        if not obj_checked and not cityjson_checked and not citygml_checked:
+            QMessageBox.warning(self, "No Output Selected", "Please select at least one output format.")
+            return
+
+        origin_utm = (tx, ty, 0.001)
         prefix = self.prefix.text() or None
         user = self.user.text() or None
-
         epsg = int(self.epsg.text()) if self.epsg.text().isdigit() else 32748
-        
+
+        # Define output variables
         obj_name = os.path.basename(obj_path)
         obj_stem = os.path.splitext(obj_name)[0]
-
         geojson_name = os.path.basename(geojson_path)
         geojson_stem = os.path.splitext(geojson_name)[0]
-
         output = os.path.dirname(obj_path)
-        output_geojson = os.path.join(output, f"{geojson_stem}_Processed.geojson")
-        output_merge_obj = os.path.join(output, f"{obj_stem}_merge.obj")
-        output_mtl = os.path.join(output, f"{obj_stem}_merge.mtl")
-        output_path = os.path.join(output, f"{obj_stem}.json")
-        output_dir_temp = os.path.join(output, "temptrash")
-        outputtemp_obj_color = os.path.join(output, "temptrash_color")
 
-        try:
-            obj_checked = self.output_obj.isChecked()
-            cityjson_checked = self.output_cityjson.isChecked()
-            citygml_checked = self.output_citygml.isChecked()
+        # Build Config Dictionary to pass to worker
+        config = {
+            'obj_path': obj_path, 'geojson_path': geojson_path, 'tx': tx, 'ty': ty,
+            'origin_utm': origin_utm, 'prefix': prefix, 'user': user, 'epsg': epsg,
+            'output_dir_temp': os.path.join(output, "temptrash"),
+            'outputtemp_obj_color': os.path.join(output, "temptrash_color"),
+            'output_geojson': os.path.join(output, f"{geojson_stem}_Processed.geojson"),
+            'output_merge_obj': os.path.join(output, f"{obj_stem}_merge.obj"),
+            'output_mtl': os.path.join(output, f"{obj_stem}_merge.mtl"),
+            'output_path': os.path.join(output, f"{obj_stem}.json"),
+            'obj_checked': obj_checked, 'cityjson_checked': cityjson_checked, 'citygml_checked': citygml_checked
+        }
 
-            if not obj_checked and not cityjson_checked and not citygml_checked:
-                QMessageBox.warning(self, "No Output Selected", "Please select at least one output format (OBJ, CityJSON, CityGML).")
-                return
+        # UI Updates
+        self.btn_process.setEnabled(False)
+        self.btn_process.setText("Processing Data...")
+        self.progress_bar.setVisible(True)
+        self.log(f"\n🚀 Starting pipeline using coordinates: X={tx}, Y={ty}")
 
-                # === Only OBJ selected ===
-            if obj_checked and not cityjson_checked and not citygml_checked:
-                self.log("Starting process...")
-                self.log_window.appendPlainText("📄 Read OBJ")
-                self.log_window.appendPlainText("🔧 Start splitting OBJ by GeoJSON")
-                self.log_window.appendPlainText(f"➡️  split_obj_by_geojson({obj_path}, {geojson_path}, {output_dir_temp}, {origin_utm}, {prefix}, {user}, {output_geojson})")
-                split_obj_by_geojson(obj_path, geojson_path, output_dir_temp, origin_utm, prefix, user, output_geojson)
+        # Start Thread
+        self.worker = GoRunnerWorker(config)
+        self.worker.log_signal.connect(self.log)
+        self.worker.finished_signal.connect(self.on_processing_finished)
+        self.worker.start()
 
-                self.log_window.appendPlainText("🎨 Coloring Process")
-                self.log_window.appendPlainText(f"➡️  coloring_obj({output_dir_temp}, {outputtemp_obj_color}, COLORS)")
-                coloring_obj(output_dir_temp, outputtemp_obj_color, COLORS)
+    def on_processing_finished(self, success, message, elapsed):
+        self.btn_process.setEnabled(True)
+        self.btn_process.setText("Process Data")
+        self.progress_bar.setVisible(False)
 
-                self.log_window.appendPlainText("✅ Coloring done, merging OBJ")
-                merge_obj_mtl(outputtemp_obj_color, output_merge_obj, output_mtl)
-                self.log_window.appendPlainText(f"✅ OBJ Merge done, output saved to: {output_merge_obj}")
-
-                if cityjson_checked:
-                    self.log_window.appendPlainText("🏙️ Start converting to CityJSON")
-                    obj_folder_to_cityjson(outputtemp_obj_color, output_path, epsg)
-                    self.log_window.appendPlainText(f"✅ Convert to CityJSON done, output saved to: {output_path}")
-            
-             # === Only CityGML selected ===
-            elif citygml_checked and not obj_checked and not cityjson_checked:
-                self.log("Starting process...")
-                subprocess.run(
-                    ["python", "function/obj2gml/obj2gmlrunner.py", obj_path, geojson_path, str(tx), str(ty), prefix or "", user or "", str(epsg)],
-                    check=True,
-                    text=True
-                )
-                self.log("✅ Process completed.")
-
-                # === Both OBJ and CityGML selected ===
-            elif obj_checked and citygml_checked:
-                self.log("Starting process...")
-                self.log_window.appendPlainText("📄 Read OBJ")
-                self.log_window.appendPlainText("🔧 Start splitting OBJ by GeoJSON")
-                self.log_window.appendPlainText(f"➡️  split_obj_by_geojson({obj_path}, {geojson_path}, {output_dir_temp}, {origin_utm}, {prefix}, {user}, {output_geojson})")
-                split_obj_by_geojson(obj_path, geojson_path, output_dir_temp, origin_utm, prefix, user, output_geojson)
-
-                self.log_window.appendPlainText("🎨 Coloring Process")
-                self.log_window.appendPlainText(f"➡️  coloring_obj({output_dir_temp}, {outputtemp_obj_color}, COLORS)")
-                coloring_obj(output_dir_temp, outputtemp_obj_color, COLORS)
-
-                self.log_window.appendPlainText("✅ Coloring done, merging OBJ")
-                merge_obj_mtl(outputtemp_obj_color, output_merge_obj, output_mtl)
-                self.log_window.appendPlainText(f"✅ OBJ Merge done, output saved to: {output_merge_obj}")
-
-                if cityjson_checked:
-                    self.log_window.appendPlainText("🏙️ Start converting to CityJSON")
-                    obj_folder_to_cityjson(outputtemp_obj_color, output_path, epsg)
-                    self.log_window.appendPlainText(f"✅ Convert to CityJSON done, output saved to: {output_path}")
-                
-                self.log("🔁 Start converting to CityGML")
-                subprocess.run(
-                    ["python", "function/obj2gml/obj2gmlrunner2.py", outputtemp_obj_color, output_geojson, prefix or "", user or "", str(epsg), obj_path],
-                    check=True,
-                    text=True
-                )
-                self.log("✅ Process completed.")
-
-        except subprocess.CalledProcessError as e:
-            self.log(f"❌ Error occurred: {e}")
-
-        finally:
-            if os.path.exists(output_dir_temp):
-                shutil.rmtree(output_dir_temp)
-            if os.path.exists(outputtemp_obj_color):
-                shutil.rmtree(outputtemp_obj_color)
+        if success:
+            finish_msg = f"✅ {message} Completed in {elapsed:.2f} seconds."
+            self.log(finish_msg)
+            QMessageBox.information(self, "Process Complete", finish_msg)
+        else:
+            self.log(f"❌ Process failed after {elapsed:.2f} seconds:\n{message}")
+            QMessageBox.critical(self, "Process Failed", f"Pipeline failed:\n{message}")

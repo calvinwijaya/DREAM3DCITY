@@ -9,7 +9,7 @@ from datetime import datetime
 from .findFile import find_complete_sets, read_and_convert_txt
 from .cacheHandling import delete_directories, delete_files
 
-from PyQt5.QtCore import QThread, pyqtSignal
+from PyQt6.QtCore import QThread, pyqtSignal
 
 class OutputCapture:
     def __init__(self, log_file='processing.log'):

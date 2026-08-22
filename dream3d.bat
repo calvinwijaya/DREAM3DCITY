@@ -56,12 +56,12 @@ echo [INFO] Activating environment: %ENV_NAME%
 call "%CONDA_PATH%" activate %ENV_NAME% && set PYTHONIOENCODING=utf-8
 
 :: Check if key library is installed
-echo [INFO] Checking if PyQt5 is already installed...
-pip show PyQt5 >nul 2>&1
+echo [INFO] Checking if PyQt6 is already installed...
+pip show PyQt6 >nul 2>&1
 
 :: Install requirements
 if errorlevel 1 (
-    echo [INFO] PyQt5 not found. Installing required packages from %REQUIREMENTS%...
+    echo [INFO] PyQt6 not found. Installing required packages from %REQUIREMENTS%...
     if exist "%REQUIREMENTS%" (
         pip install -r "%REQUIREMENTS%"
     ) else (
@@ -70,7 +70,7 @@ if errorlevel 1 (
         exit /b
     )
 ) else (
-    echo [INFO] PyQt5 already installed. Skipping requirements installation.
+    echo [INFO] PyQt6 already installed. Skipping requirements installation.
 )
 
 :: Run the GUI
